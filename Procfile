@@ -1,1 +1,1 @@
-web: python app_refeicoes.py
+web: python Refeicoes.py
