@@ -441,36 +441,45 @@ def construir_interface(page: ft.Page):
         scroll=ft.ScrollMode.AUTO,
     )
 
-    # ---------------- MONTAGEM DAS ABAS ----------------
+    # ---------------- MONTAGEM DA NAVEGAÇÃO (sem Tabs, evita bug de altura no mobile) ----------------
 
     atualizar_historico()
 
+    tab_mensal.visible = False
+    tab_anual.visible = False
+
+    def mostrar_aba(indice):
+        tab_registro.visible = indice == 0
+        tab_mensal.visible = indice == 1
+        tab_anual.visible = indice == 2
+        btn_registro.style = ft.ButtonStyle(bgcolor="blue" if indice == 0 else None)
+        btn_mensal.style = ft.ButtonStyle(bgcolor="blue" if indice == 1 else None)
+        btn_anual.style = ft.ButtonStyle(bgcolor="blue" if indice == 2 else None)
+        page.update()
+
+    btn_registro = ft.ElevatedButton(
+        "Registro Diário",
+        on_click=lambda e: mostrar_aba(0),
+        style=ft.ButtonStyle(bgcolor="blue"),
+    )
+    btn_mensal = ft.ElevatedButton(
+        "Relatório Mensal",
+        on_click=lambda e: mostrar_aba(1),
+    )
+    btn_anual = ft.ElevatedButton(
+        "Relatório Anual",
+        on_click=lambda e: mostrar_aba(2),
+    )
+
     page.add(
-        ft.Tabs(
-            selected_index=0,
-            length=3,
-            expand=True,
-            content=ft.Column(
-                expand=True,
-                controls=[
-                    ft.TabBar(
-                        tabs=[
-                            ft.Tab(label="Registro Diário"),
-                            ft.Tab(label="Relatório Mensal"),
-                            ft.Tab(label="Relatório Anual"),
-                        ]
-                    ),
-                    ft.TabBarView(
-                        expand=True,
-                        controls=[
-                            tab_registro,
-                            tab_mensal,
-                            tab_anual,
-                        ],
-                    ),
-                ],
-            ),
-        )
+        ft.Row(
+            [btn_registro, btn_mensal, btn_anual],
+            wrap=True,
+        ),
+        ft.Divider(),
+        tab_registro,
+        tab_mensal,
+        tab_anual,
     )
 
 
