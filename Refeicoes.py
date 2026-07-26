@@ -480,6 +480,17 @@ def construir_interface(page: ft.Page):
         tab_registro,
         tab_mensal,
         tab_anual,
+        ft.Divider(),
+        ft.Container(
+            content=ft.Text(
+                "Desenvolvido por G.SANGUINETE",
+                size=12,
+                color="grey",
+                italic=True,
+            ),
+            alignment=ft.alignment.center,
+            padding=10,
+        ),
     )
 
 
