@@ -1,9 +1,13 @@
 import flet as ft
 import sqlite3
+import os
 from datetime import datetime
 import calendar
 
-DB_PATH = "refeicoes.db"
+# Em produção (Railway/Render/etc.) essas variáveis vêm do ambiente.
+# Localmente, os valores padrão abaixo são usados.
+DB_PATH = os.environ.get("DB_PATH", "refeicoes.db")
+PORT = int(os.environ.get("PORT", 8550))
 
 MESES_PT = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -131,11 +135,7 @@ def data_iso_para_br(data_iso):
 # App
 # ---------------------------------------------------------------------------
 
-def main(page: ft.Page):
-    page.title = "Controle de Refeições"
-    page.scroll = ft.ScrollMode.AUTO
-    criar_tabela()
-
+def construir_interface(page: ft.Page):
     # ---------------- ABA 1: REGISTRO DIÁRIO ----------------
 
     turno_dd = ft.Dropdown(
@@ -474,4 +474,47 @@ def main(page: ft.Page):
     )
 
 
-ft.app(target=main)
+def main(page: ft.Page):
+    page.title = "Controle de Refeições"
+    page.scroll = ft.ScrollMode.AUTO
+    criar_tabela()
+
+    SENHA_APP = os.environ.get("APP_PASSWORD", "1234")
+
+    senha_field = ft.TextField(
+        label="Senha de acesso",
+        password=True,
+        can_reveal_password=True,
+        width=280,
+    )
+    erro_login = ft.Text("", color="red")
+
+    def entrar(e):
+        if senha_field.value == SENHA_APP:
+            page.controls.clear()
+            construir_interface(page)
+            page.update()
+        else:
+            erro_login.value = "Senha incorreta. Tente novamente."
+            page.update()
+
+    senha_field.on_submit = entrar
+
+    page.add(
+        ft.Column(
+            [
+                ft.Container(height=100),
+                ft.Text("Controle de Refeições", size=28, weight="bold"),
+                ft.Text("Digite a senha para acessar", size=14),
+                senha_field,
+                ft.ElevatedButton("Entrar", on_click=entrar),
+                erro_login,
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+    )
+
+
+
+ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=PORT)
