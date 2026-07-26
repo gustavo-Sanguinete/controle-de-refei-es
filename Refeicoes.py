@@ -488,7 +488,7 @@ def construir_interface(page: ft.Page):
                 color="grey",
                 italic=True,
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment.CENTER,
             padding=10,
         ),
     )
