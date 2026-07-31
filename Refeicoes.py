@@ -296,12 +296,12 @@ def construir_interface(page: ft.Page):
     turno_dd = ft.Dropdown(
         label="Turno",
         options=[ft.dropdown.Option(key=chave, text=nome) for chave, nome in TURNOS.items()],
-        value="almoco", width=200,
+        value="almoco", width=170,
         border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
     data_field = ft.TextField(
-        label="Data (DD/MM/AAAA)", value=datetime.now().strftime("%d/%m/%Y"), width=200,
+        label="Data (DD/MM/AAAA)", value=datetime.now().strftime("%d/%m/%Y"), width=170,
         border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
@@ -408,12 +408,12 @@ def construir_interface(page: ft.Page):
         content=ft.Column(
             [
                 ft.Text("Registro Diário", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                ft.Row([turno_dd, data_field]),
+                ft.Row([turno_dd, data_field], wrap=True),
                 inicial, reposicoes, pratos_unidade, unidades_extra, sobras_pratos, quantidade_simples,
                 ft.Row([
                     ft.ElevatedButton("Calcular e Salvar", icon=ft.Icons.CHECK_CIRCLE, on_click=calcular_e_salvar, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
                     ft.ElevatedButton("Limpar", icon=ft.Icons.CLEAR, on_click=limpar, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ]),
+                ], wrap=True),
                 total_refeicoes, mensagem, ft.Divider(), historico_col,
             ],
             spacing=12, scroll=ft.ScrollMode.AUTO,
@@ -509,8 +509,10 @@ def construir_interface(page: ft.Page):
                     mes_dd, ano_mensal_dd,
                     ft.ElevatedButton("Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
                     ft.ElevatedButton("Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ]),
-                ft.Divider(), tabela_mensal, total_mensal_text,
+                ], wrap=True),
+                ft.Divider(),
+                ft.Row([tabela_mensal], scroll=ft.ScrollMode.AUTO),
+                total_mensal_text,
             ],
             spacing=12, scroll=ft.ScrollMode.AUTO,
         ),
@@ -582,8 +584,10 @@ def construir_interface(page: ft.Page):
                     ano_anual_dd,
                     ft.ElevatedButton("Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_anual, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
                     ft.ElevatedButton("Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_anual, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ]),
-                ft.Divider(), tabela_anual, total_anual_text,
+                ], wrap=True),
+                ft.Divider(),
+                ft.Row([tabela_anual], scroll=ft.ScrollMode.AUTO),
+                total_anual_text,
             ],
             spacing=12, scroll=ft.ScrollMode.AUTO,
         ),
@@ -649,6 +653,7 @@ def construir_interface(page: ft.Page):
                         ft.Row(
                             [ft.Text("Consumo por mês", size=16, weight="bold", color=COR_VERDE_ESCURO), ano_dashboard_dd],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            wrap=True,
                         ),
                         grafico_mes_col,
                     ],
