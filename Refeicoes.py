@@ -34,6 +34,9 @@ LOGO_ARCOM_URL = "https://www.arcom.com.br/imagens/produtos/Logo_Fundo_Branco.pn
 RAIO_PADRAO = 8
 RAIO_CARD = 12
 
+REPORTS_DIR = os.path.join("assets", "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)  # precisa existir antes do ft.run() montar assets_dir
+
 def sombra_card():
     return ft.BoxShadow(
         spread_radius=0,
@@ -128,10 +131,16 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
     return buffer.getvalue()
 
 
-def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes):
-    """Codifica o PDF em base64 e abre em nova aba (o navegador oferece a opção de imprimir)."""
-    b64 = base64.b64encode(pdf_bytes).decode("ascii")
-    page.launch_url(f"data:application/pdf;base64,{b64}")
+def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes, nome_arquivo: str):
+    """Salva o PDF em assets/reports/ e abre em nova aba via URL normal.
+    (Abrir direto por data-URI base64 é bloqueado por navegadores modernos
+    como medida de segurança, então o PDF precisa existir como arquivo de
+    verdade, servido pelo próprio Flet a partir da pasta assets_dir.)"""
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    caminho = os.path.join(REPORTS_DIR, nome_arquivo)
+    with open(caminho, "wb") as f:
+        f.write(pdf_bytes)
+    page.launch_url(f"/reports/{nome_arquivo}")
 
 
 def get_connection():
@@ -483,6 +492,8 @@ def construir_interface(page: ft.Page):
         dados_pdf_mensal["linhas"] = linhas_pdf
         dados_pdf_mensal["titulo"] = f"Relatório Mensal — {MESES_PT[mes - 1]}/{ano}"
         dados_pdf_mensal["subtitulo"] = "Detalhamento diário de refeições, marmitas e lanches"
+        dados_pdf_mensal["ano"] = ano
+        dados_pdf_mensal["mes"] = mes
         dados_pdf_mensal["rodape"] = [
             f"Total de refeições do mês (Almoço + Jantar + Marmitas): {total_mes_refeicoes}",
             f"Total de lanches do mês: {total_mes_lanches}",
@@ -499,7 +510,8 @@ def construir_interface(page: ft.Page):
             cabecalhos=["Data", "Almoço", "Jantar", "Marmita\nAlmoço", "Marmita\nJanta", "Total Refeições", "Lanche"],
             linhas=dados_pdf_mensal["linhas"], rodape_linhas=dados_pdf_mensal["rodape"],
         )
-        abrir_pdf_no_navegador(page, pdf_bytes)
+        nome_arquivo = f"relatorio_mensal_{dados_pdf_mensal['ano']}_{dados_pdf_mensal['mes']:02d}.pdf"
+        abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
 
     tab_mensal = ft.Container(
         content=ft.Column(
@@ -558,6 +570,7 @@ def construir_interface(page: ft.Page):
         dados_pdf_anual["linhas"] = linhas_pdf
         dados_pdf_anual["titulo"] = f"Relatório Anual — {ano}"
         dados_pdf_anual["subtitulo"] = "Totais mensais de refeições e lanches"
+        dados_pdf_anual["ano"] = ano
         dados_pdf_anual["rodape"] = [
             f"Total de refeições do ano: {total_ano_refeicoes}",
             f"Total de lanches do ano: {total_ano_lanches}",
@@ -574,7 +587,8 @@ def construir_interface(page: ft.Page):
             cabecalhos=["Mês", "Total de Refeições", "Total de Lanches"],
             linhas=dados_pdf_anual["linhas"], rodape_linhas=dados_pdf_anual["rodape"],
         )
-        abrir_pdf_no_navegador(page, pdf_bytes)
+        nome_arquivo = f"relatorio_anual_{dados_pdf_anual['ano']}.pdf"
+        abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
 
     tab_anual = ft.Container(
         content=ft.Column(
@@ -781,4 +795,4 @@ def main(page: ft.Page):
     )
 
 
-ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=PORT)
+ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=PORT, assets_dir="assets")
