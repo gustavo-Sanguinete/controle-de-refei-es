@@ -2,6 +2,8 @@ import flet as ft
 import sqlite3
 import os
 import base64
+import statistics
+import re
 from io import BytesIO
 from datetime import datetime
 import calendar
@@ -26,6 +28,7 @@ COR_VERDE_LIMA = "#BAE64F"     # acentos, friso decorativo
 COR_BRANCO = "#FFFFFF"
 COR_CINZA_TEXTO = "#636466"
 COR_DANGER = "#D13D29"
+COR_ALERTA = "#E8A33D"  # laranja de aviso, distinto do vermelho de erro
 COR_FUNDO_PAGINA = "#F6F6F6"
 COR_BORDA_CARD = "#E6E7E8"
 
@@ -55,6 +58,9 @@ MESES_PT = [
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 ]
 
+# Turnos/tipos de refeição disponíveis. Lanche é pouco frequente, mas fica
+# disponível na lista normalmente (só aparece nos relatórios com valor 0
+# nos dias em que não houve registro).
 TURNOS = {
     "almoco": "Almoço",
     "jantar": "Jantar",
@@ -64,7 +70,16 @@ TURNOS = {
 }
 
 
-def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
+# ---------------------------------------------------------------------------
+# Geração de PDF (relatórios para impressão)
+# ---------------------------------------------------------------------------
+
+def _remover_emojis(texto):
+    """Remove emojis do texto (a fonte padrão do PDF não os renderiza)."""
+    return re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]+\s*", "", texto).strip()
+
+
+def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas, insights_linhas=None):
     """Gera um PDF em memória com o padrão visual ARCOM e retorna os bytes."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -89,6 +104,14 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
     estilo_total = ParagraphStyle(
         "Total", parent=estilos["Heading3"],
         textColor=colors.HexColor(COR_VERDE_ESCURO), fontSize=12, spaceBefore=4,
+    )
+    estilo_insight_titulo = ParagraphStyle(
+        "InsightTitulo", parent=estilos["Heading3"],
+        textColor=colors.HexColor(COR_VERDE_ARCOM), fontSize=12, spaceBefore=16, spaceAfter=6,
+    )
+    estilo_insight_item = ParagraphStyle(
+        "InsightItem", parent=estilos["Normal"],
+        textColor=colors.HexColor(COR_VERDE_ESCURO), fontSize=10, spaceAfter=4, leftIndent=6,
     )
 
     elementos = [
@@ -117,6 +140,11 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
     for linha_texto in rodape_linhas:
         elementos.append(Paragraph(linha_texto, estilo_total))
 
+    if insights_linhas:
+        elementos.append(Paragraph("Insights Automáticos", estilo_insight_titulo))
+        for linha in insights_linhas:
+            elementos.append(Paragraph(f"• {_remover_emojis(linha)}", estilo_insight_item))
+
     elementos.append(Spacer(1, 20))
     elementos.append(Paragraph(
         f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} — Desenvolvido por G.SANGUINETE",
@@ -132,6 +160,11 @@ def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes):
     """Codifica o PDF em base64 e abre em nova aba (o navegador oferece a opção de imprimir)."""
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
     page.launch_url(f"data:application/pdf;base64,{b64}")
+
+
+# ---------------------------------------------------------------------------
+# Banco de dados
+# ---------------------------------------------------------------------------
 
 
 def get_connection():
@@ -191,6 +224,32 @@ def buscar_ultimos(limite=10):
     return rows
 
 
+def buscar_estatisticas_turno(turno, data_excluir=None, minimo_amostras=5):
+    """Retorna (media, desvio_padrao, quantidade) dos totais históricos de um turno,
+    usado para detectar valores fora do padrão. Ignora o registro do dia sendo editado
+    (caso já exista), para não comparar o valor novo com ele mesmo."""
+    conn = get_connection()
+    if data_excluir:
+        cursor = conn.execute(
+            "SELECT total FROM refeicoes WHERE turno = ? AND data != ? AND total IS NOT NULL",
+            (turno, data_excluir),
+        )
+    else:
+        cursor = conn.execute(
+            "SELECT total FROM refeicoes WHERE turno = ? AND total IS NOT NULL",
+            (turno,),
+        )
+    valores = [linha[0] for linha in cursor.fetchall()]
+    conn.close()
+
+    if len(valores) < minimo_amostras:
+        return None, None, len(valores)
+
+    media = statistics.mean(valores)
+    desvio = statistics.pstdev(valores)
+    return media, desvio, len(valores)
+
+
 def buscar_mes(ano, mes):
     conn = get_connection()
     cursor = conn.execute("""
@@ -220,24 +279,146 @@ def buscar_ano(ano):
     return rows
 
 
-def buscar_totais_por_ano():
-    """Soma o total de refeições e lanches agrupado por ano (todos os anos com dados)."""
+def buscar_registros_ano(ano):
+    """Retorna todos os registros brutos (data, turno, total) de um ano inteiro."""
     conn = get_connection()
-    cursor = conn.execute("""
-        SELECT
-            strftime('%Y', data) as ano,
-            SUM(CASE WHEN turno IN ('almoco', 'jantar', 'marmita_almoco', 'marmita_jantar') THEN total ELSE 0 END) as total_refeicoes,
-            SUM(CASE WHEN turno = 'lanche' THEN total ELSE 0 END) as total_lanches
-        FROM refeicoes
-        GROUP BY ano
-        ORDER BY ano
-    """)
+    cursor = conn.execute(
+        "SELECT data, turno, total FROM refeicoes WHERE strftime('%Y', data) = ? ORDER BY data, turno",
+        (str(ano),),
+    )
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Motor de Insights Automáticos (análise estatística, sem IA generativa)
+# ---------------------------------------------------------------------------
+
+NOMES_DIAS_SEMANA = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira",
+                     "Sexta-feira", "Sábado", "Domingo"]
+
+TURNOS_REFEICAO = ("almoco", "jantar", "marmita_almoco", "marmita_jantar")
+
+
+def _contar_anomalias(rows):
+    """Conta quantos registros (data, turno, total) fogem do padrão histórico
+    daquele turno, usando o mesmo critério aplicado no momento do registro."""
+    contagem = 0
+    for data_iso, turno, total in rows:
+        if total is None:
+            continue
+        media, desvio, n = buscar_estatisticas_turno(turno, data_excluir=data_iso)
+        if media is None:
+            continue
+        limite = max(desvio * 2, media * 0.4)
+        if limite > 0 and abs(total - media) > limite:
+            contagem += 1
+    return contagem
+
+
+def _dia_semana_mais_movimentado(dias_dict):
+    """dias_dict: {data_iso: {"almoco": x, "jantar": y, "marmita_almoco": z, "marmita_jantar": w}}
+    Retorna (nome_do_dia, media) do dia da semana com maior movimento médio, ou None."""
+    somas_por_dia_semana = {}
+    for data_iso, valores in dias_dict.items():
+        total_dia = sum(valores.get(t, 0) for t in TURNOS_REFEICAO)
+        dt = datetime.strptime(data_iso, "%Y-%m-%d")
+        somas_por_dia_semana.setdefault(dt.weekday(), []).append(total_dia)
+
+    if not somas_por_dia_semana:
+        return None
+
+    medias = {dia: statistics.mean(valores) for dia, valores in somas_por_dia_semana.items()}
+    dia_top = max(medias, key=medias.get)
+    return NOMES_DIAS_SEMANA[dia_top], medias[dia_top]
+
+
+def totais_mes(ano, mes):
+    """Soma de refeições (Almoço+Jantar+Marmitas) e lanches de um mês específico."""
+    rows = buscar_mes(ano, mes)
+    total_ref = sum(total for _, turno, total in rows if turno in TURNOS_REFEICAO and total is not None)
+    total_lan = sum(total for _, turno, total in rows if turno == "lanche" and total is not None)
+    return total_ref, total_lan
+
+
+def gerar_insights_mensais(ano, mes, dias_dict, total_mes_refeicoes, total_mes_lanches, rows_mes):
+    """Gera uma lista de frases de análise automática sobre o mês, em português."""
+    insights = []
+
+    # 1) Tendência em relação ao mês anterior
+    ano_ant, mes_ant = (ano - 1, 12) if mes == 1 else (ano, mes - 1)
+    ref_anterior, _ = totais_mes(ano_ant, mes_ant)
+    if ref_anterior > 0:
+        variacao = ((total_mes_refeicoes - ref_anterior) / ref_anterior) * 100
+        if abs(variacao) < 1:
+            insights.append("📊 Volume de refeições estável em relação ao mês anterior.")
+        elif variacao > 0:
+            insights.append(f"📈 Alta de {variacao:.0f}% no total de refeições em relação ao mês anterior.")
+        else:
+            insights.append(f"📉 Queda de {abs(variacao):.0f}% no total de refeições em relação ao mês anterior.")
+    else:
+        insights.append("📊 Ainda não há dados do mês anterior para comparação de tendência.")
+
+    # 2) Dia da semana mais movimentado
+    resultado_dia = _dia_semana_mais_movimentado(dias_dict)
+    if resultado_dia:
+        nome_dia, media_dia = resultado_dia
+        insights.append(f"📅 {nome_dia} é o dia da semana com maior movimento médio (~{media_dia:.0f} refeições).")
+
+    # 3) Registros fora do padrão
+    n_anomalias = _contar_anomalias(rows_mes)
+    if n_anomalias == 0:
+        insights.append("✅ Nenhum registro fora do padrão identificado neste mês.")
+    elif n_anomalias == 1:
+        insights.append("⚠️ 1 registro fugiu do padrão histórico neste mês e foi sinalizado no momento do lançamento.")
+    else:
+        insights.append(f"⚠️ {n_anomalias} registros fugiram do padrão histórico neste mês e foram sinalizados no momento do lançamento.")
+
+    return insights
+
+
+def gerar_insights_anuais(ano, somas_por_mes, total_ano_refeicoes, rows_ano):
+    """Gera uma lista de frases de análise automática sobre o ano, em português.
+    somas_por_mes: {mes_numero (1-12): total_refeicoes_do_mes}"""
+    insights = []
+
+    # 1) Tendência em relação ao ano anterior
+    rows_ano_anterior = buscar_registros_ano(ano - 1)
+    ref_ano_anterior = sum(total for _, turno, total in rows_ano_anterior if turno in TURNOS_REFEICAO and total is not None)
+    if ref_ano_anterior > 0:
+        variacao = ((total_ano_refeicoes - ref_ano_anterior) / ref_ano_anterior) * 100
+        if abs(variacao) < 1:
+            insights.append("📊 Volume total de refeições estável em relação ao ano anterior.")
+        elif variacao > 0:
+            insights.append(f"📈 Alta de {variacao:.0f}% no total de refeições em relação ao ano anterior.")
+        else:
+            insights.append(f"📉 Queda de {abs(variacao):.0f}% no total de refeições em relação ao ano anterior.")
+    else:
+        insights.append("📊 Ainda não há dados do ano anterior para comparação de tendência.")
+
+    # 2) Mês de maior movimento
+    meses_com_dados = {m: v for m, v in somas_por_mes.items() if v > 0}
+    if meses_com_dados:
+        mes_top = max(meses_com_dados, key=meses_com_dados.get)
+        insights.append(f"🏆 {MESES_PT[mes_top - 1]} foi o mês de maior movimento, com {meses_com_dados[mes_top]} refeições.")
+
+    # 3) Registros fora do padrão no ano
+    n_anomalias = _contar_anomalias(rows_ano)
+    if n_anomalias == 0:
+        insights.append("✅ Nenhum registro fora do padrão identificado neste ano.")
+    else:
+        insights.append(f"⚠️ {n_anomalias} registro(s) fugiram do padrão histórico ao longo do ano.")
+
+    return insights
+
+
+# ---------------------------------------------------------------------------
+# Helpers de formatação de data
+# ---------------------------------------------------------------------------
+
 def data_br_para_iso(data_br):
+    """Converte 'DD/MM/AAAA' para 'AAAA-MM-DD'. Lança ValueError se inválida."""
     dt = datetime.strptime(data_br.strip(), "%d/%m/%Y")
     return dt.strftime("%Y-%m-%d")
 
@@ -247,63 +428,36 @@ def data_iso_para_br(data_iso):
     return dt.strftime("%d/%m/%Y")
 
 
-def montar_grafico_barras(valores, rotulos, altura_max=170):
-    """Monta um gráfico de barras 'na mão' (Container + Column), sem depender
-    de nenhum pacote externo de gráficos — mais robusto entre versões do Flet.
-    Destaca em verde-lima a maior barra. Retorna (grafico, indice_da_maior, valor_da_maior)."""
-    maior_valor = max(valores) if valores else 0
-    maior_indice = valores.index(maior_valor) if maior_valor > 0 else None
-
-    barras = []
-    for i, v in enumerate(valores):
-        cor = COR_VERDE_LIMA if i == maior_indice else COR_VERDE_ARCOM
-        altura_barra = (v / maior_valor * altura_max) if maior_valor > 0 else 2
-        altura_barra = max(altura_barra, 2)  # barra mínima visível mesmo com valor 0
-        barras.append(
-            ft.Column(
-                [
-                    ft.Text(str(v), size=10, color=COR_CINZA_TEXTO, weight="bold"),
-                    ft.Container(width=28, height=altura_barra, bgcolor=cor, border_radius=4),
-                    ft.Text(rotulos[i], size=10, color=COR_CINZA_TEXTO, weight="bold"),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=4,
-            )
-        )
-
-    grafico = ft.Row(
-        barras,
-        alignment=ft.MainAxisAlignment.SPACE_EVENLY,
-        vertical_alignment=ft.CrossAxisAlignment.END,
-        spacing=8,
-        scroll=ft.ScrollMode.AUTO,
-    )
-    return grafico, maior_indice, maior_valor
-
-
-def badge_destaque(texto):
-    """Selo no padrão do design system: fundo verde-lima, texto verde-escuro,
-    cantos totalmente arredondados — mesmo uso de 'badge/acento' do lima."""
-    return ft.Container(
-        content=ft.Text(texto, size=13, weight="bold", color=COR_VERDE_ESCURO),
-        bgcolor=COR_VERDE_LIMA,
-        border_radius=999,
-        padding=ft.Padding(14, 8, 14, 8),
-    )
-
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 
 def construir_interface(page: ft.Page):
+    # ---------------- ABA 1: REGISTRO DIÁRIO ----------------
+
     turno_dd = ft.Dropdown(
         label="Turno",
-        options=[ft.dropdown.Option(key=chave, text=nome) for chave, nome in TURNOS.items()],
-        value="almoco", width=170,
-        border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
-        focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
+        options=[
+            ft.dropdown.Option(key=chave, text=nome)
+            for chave, nome in TURNOS.items()
+        ],
+        value="almoco",
+        width=200,
+        border_radius=RAIO_PADRAO,
+        border_color=COR_BORDA_CARD,
+        focused_border_color=COR_VERDE_ARCOM,
+        filled=True,
+        bgcolor=COR_BRANCO,
     )
     data_field = ft.TextField(
-        label="Data (DD/MM/AAAA)", value=datetime.now().strftime("%d/%m/%Y"), width=170,
-        border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
-        focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
+        label="Data (DD/MM/AAAA)",
+        value=datetime.now().strftime("%d/%m/%Y"),
+        width=200,
+        border_radius=RAIO_PADRAO,
+        border_color=COR_BORDA_CARD,
+        focused_border_color=COR_VERDE_ARCOM,
+        filled=True,
+        bgcolor=COR_BRANCO,
     )
     inicial = ft.TextField(label="Quantidade inicial de refeições", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     reposicoes = ft.TextField(label="Quantidade de reposições", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
@@ -314,8 +468,16 @@ def construir_interface(page: ft.Page):
 
     quantidade_simples = ft.TextField(label="Quantidade", visible=False, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
 
-    total_refeicoes = ft.TextField(label="Total de refeições", disabled=True, color="red")
+    total_refeicoes = ft.TextField(
+        label="Total de refeições", disabled=True, color="red"
+    )
     mensagem = ft.Text("", color="red", size=16, weight="bold")
+    btn_confirmar_mesmo_assim = ft.ElevatedButton(
+        "Confirmar e salvar mesmo assim",
+        icon=ft.Icons.WARNING_AMBER,
+        visible=False,
+        style=ft.ButtonStyle(bgcolor=COR_ALERTA, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
+    )
 
     LABELS_SIMPLES = {
         "marmita_almoco": "Quantidade de marmitas (Almoço)",
@@ -339,16 +501,45 @@ def construir_interface(page: ft.Page):
 
     def atualizar_historico():
         historico_col.controls.clear()
-        historico_col.controls.append(ft.Text("Últimos registros", weight="bold", size=16))
+        historico_col.controls.append(
+            ft.Text("Últimos registros", weight="bold", size=16)
+        )
         for data_iso, turno, total in buscar_ultimos(10):
             turno_label = TURNOS.get(turno, turno)
-            historico_col.controls.append(ft.Text(f"{data_iso_para_br(data_iso)} - {turno_label}: {total}"))
+            historico_col.controls.append(
+                ft.Text(f"{data_iso_para_br(data_iso)} - {turno_label}: {total}")
+            )
+
+    pendente = {}
+
+    def _persistir(data_iso, turno, inicial_v, reposicoes_v, pratos_unidade_v,
+                    unidades_extra_v, sobras_pratos_v, total_v):
+        salvar_refeicao(
+            data_iso, turno, inicial_v, reposicoes_v,
+            pratos_unidade_v, unidades_extra_v, sobras_pratos_v, total_v
+        )
+        total_refeicoes.value = str(total_v)
+        mensagem.value = f"Salvo com sucesso! Total: {total_v}"
+        mensagem.color = "green"
+        btn_confirmar_mesmo_assim.visible = False
+        atualizar_historico()
+        page.update()
+
+    def confirmar_mesmo_assim(e):
+        if not pendente:
+            return
+        _persistir(**pendente)
+        pendente.clear()
+
+    btn_confirmar_mesmo_assim.on_click = confirmar_mesmo_assim
 
     def calcular_e_salvar(e):
+        # Validação da data
         try:
             data_iso = data_br_para_iso(data_field.value)
         except (ValueError, AttributeError):
             mensagem.value = "Data inválida. Use o formato DD/MM/AAAA."
+            btn_confirmar_mesmo_assim.visible = False
             page.update()
             return
 
@@ -357,11 +548,14 @@ def construir_interface(page: ft.Page):
         if eh_formula:
             if not inicial.value:
                 mensagem.value = "Informe a quantidade inicial."
+                btn_confirmar_mesmo_assim.visible = False
                 page.update()
                 return
+
             for campo in (reposicoes, pratos_unidade, unidades_extra, sobras_pratos):
                 if campo.value == "":
                     campo.value = "0"
+
             try:
                 inicial_v = int(inicial.value)
                 reposicoes_v = int(reposicoes.value)
@@ -370,28 +564,60 @@ def construir_interface(page: ft.Page):
                 sobras_pratos_v = int(sobras_pratos.value)
             except ValueError:
                 mensagem.value = "Por favor, insira apenas números nos campos."
+                btn_confirmar_mesmo_assim.visible = False
                 page.update()
                 return
-            total_v = inicial_v + reposicoes_v * pratos_unidade_v + unidades_extra_v - sobras_pratos_v
-            salvar_refeicao(data_iso, turno_dd.value, inicial_v, reposicoes_v, pratos_unidade_v, unidades_extra_v, sobras_pratos_v, total_v)
+
+            total_v = (
+                inicial_v
+                + reposicoes_v * pratos_unidade_v
+                + unidades_extra_v
+                - sobras_pratos_v
+            )
+            dados_persistencia = dict(
+                data_iso=data_iso, turno=turno_dd.value,
+                inicial_v=inicial_v, reposicoes_v=reposicoes_v,
+                pratos_unidade_v=pratos_unidade_v, unidades_extra_v=unidades_extra_v,
+                sobras_pratos_v=sobras_pratos_v, total_v=total_v,
+            )
         else:
             if not quantidade_simples.value:
                 mensagem.value = "Informe a quantidade."
+                btn_confirmar_mesmo_assim.visible = False
                 page.update()
                 return
             try:
                 total_v = int(quantidade_simples.value)
             except ValueError:
                 mensagem.value = "Por favor, insira apenas números."
+                btn_confirmar_mesmo_assim.visible = False
                 page.update()
                 return
-            salvar_refeicao(data_iso, turno_dd.value, None, None, None, None, None, total_v)
 
-        total_refeicoes.value = str(total_v)
-        mensagem.value = f"Salvo com sucesso! Total: {total_v}"
-        mensagem.color = "green"
-        atualizar_historico()
-        page.update()
+            dados_persistencia = dict(
+                data_iso=data_iso, turno=turno_dd.value,
+                inicial_v=None, reposicoes_v=None, pratos_unidade_v=None,
+                unidades_extra_v=None, sobras_pratos_v=None, total_v=total_v,
+            )
+
+        # --- Checagem de valor fora do padrão histórico ---
+        media, desvio, n_amostras = buscar_estatisticas_turno(turno_dd.value, data_excluir=data_iso)
+        if media is not None:
+            limite = max(desvio * 2, media * 0.4)  # tolerância mínima de 40% mesmo com desvio baixo
+            if limite > 0 and abs(total_v - media) > limite:
+                pendente.clear()
+                pendente.update(dados_persistencia)
+                mensagem.value = (
+                    f"⚠️ Esse valor ({total_v}) está bem diferente da média histórica "
+                    f"desse turno (~{media:.0f}, com base em {n_amostras} registros). "
+                    f"Confere antes de salvar."
+                )
+                mensagem.color = COR_ALERTA
+                btn_confirmar_mesmo_assim.visible = True
+                page.update()
+                return
+
+        _persistir(**dados_persistencia)
 
     def limpar(e):
         inicial.value = ""
@@ -402,24 +628,44 @@ def construir_interface(page: ft.Page):
         quantidade_simples.value = ""
         total_refeicoes.value = ""
         mensagem.value = ""
+        btn_confirmar_mesmo_assim.visible = False
+        pendente.clear()
         page.update()
 
     tab_registro = ft.Container(
         content=ft.Column(
-            [
-                ft.Text("Registro Diário", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                ft.Row([turno_dd, data_field], wrap=True),
-                inicial, reposicoes, pratos_unidade, unidades_extra, sobras_pratos, quantidade_simples,
-                ft.Row([
+        [
+            ft.Text("Registro Diário", size=24, weight="bold", color=COR_VERDE_ESCURO),
+            ft.Row([turno_dd, data_field]),
+            inicial,
+            reposicoes,
+            pratos_unidade,
+            unidades_extra,
+            sobras_pratos,
+            quantidade_simples,
+            ft.Row(
+                [
                     ft.ElevatedButton("Calcular e Salvar", icon=ft.Icons.CHECK_CIRCLE, on_click=calcular_e_salvar, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
                     ft.ElevatedButton("Limpar", icon=ft.Icons.CLEAR, on_click=limpar, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ], wrap=True),
-                total_refeicoes, mensagem, ft.Divider(), historico_col,
-            ],
-            spacing=12, scroll=ft.ScrollMode.AUTO,
+                ]
+            ),
+            total_refeicoes,
+            mensagem,
+            btn_confirmar_mesmo_assim,
+            ft.Divider(),
+            historico_col,
+        ],
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
         ),
-        bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
+
+    # ---------------- ABA 2: RELATÓRIO MENSAL ----------------
 
     ano_atual = datetime.now().year
     anos_opcoes = [ft.dropdown.Option(str(a)) for a in range(ano_atual - 2, ano_atual + 2)]
@@ -430,27 +676,33 @@ def construir_interface(page: ft.Page):
 
     tabela_mensal = ft.Column(spacing=2)
     total_mensal_text = ft.Text("", size=18, weight="bold", color=COR_VERDE_ESCURO)
-    dados_pdf_mensal = {"linhas": [], "titulo": "", "subtitulo": "", "rodape": []}
+    insights_mensal_col = ft.Column(spacing=6)
+    dados_pdf_mensal = {"linhas": [], "titulo": "", "subtitulo": "", "rodape": [], "insights": []}
 
     def gerar_relatorio_mensal(e):
         ano = int(ano_mensal_dd.value)
         mes = int(mes_dd.value)
         rows = buscar_mes(ano, mes)
+
         dias = {}
         for data_iso, turno, total in rows:
             dias.setdefault(data_iso, {chave: 0 for chave in TURNOS})
             dias[data_iso][turno] = total
 
         tabela_mensal.controls.clear()
-        tabela_mensal.controls.append(ft.Row([
-            ft.Text("Data", width=90, weight="bold"),
-            ft.Text("Almoço", width=65, weight="bold"),
-            ft.Text("Jantar", width=65, weight="bold"),
-            ft.Text("Marmita\nAlmoço", width=75, weight="bold"),
-            ft.Text("Marmita\nJanta", width=75, weight="bold"),
-            ft.Text("Total Refeições", width=110, weight="bold"),
-            ft.Text("Lanche", width=65, weight="bold"),
-        ]))
+        tabela_mensal.controls.append(
+            ft.Row(
+                [
+                    ft.Text("Data", width=90, weight="bold"),
+                    ft.Text("Almoço", width=65, weight="bold"),
+                    ft.Text("Jantar", width=65, weight="bold"),
+                    ft.Text("Marmita\nAlmoço", width=75, weight="bold"),
+                    ft.Text("Marmita\nJanta", width=75, weight="bold"),
+                    ft.Text("Total Refeições", width=110, weight="bold"),
+                    ft.Text("Lanche", width=65, weight="bold"),
+                ]
+            )
+        )
 
         linhas_pdf = []
         total_mes_refeicoes = 0
@@ -464,21 +716,44 @@ def construir_interface(page: ft.Page):
             total_refeicoes_dia = almoco_v + jantar_v + marmita_almoco_v + marmita_jantar_v
             total_mes_refeicoes += total_refeicoes_dia
             total_mes_lanches += lanche_v
-            tabela_mensal.controls.append(ft.Row([
-                ft.Text(data_iso_para_br(data_iso), width=90),
-                ft.Text(str(almoco_v), width=65),
-                ft.Text(str(jantar_v), width=65),
-                ft.Text(str(marmita_almoco_v), width=75),
-                ft.Text(str(marmita_jantar_v), width=75),
-                ft.Text(str(total_refeicoes_dia), width=110),
-                ft.Text(str(lanche_v), width=65),
-            ]))
-            linhas_pdf.append([data_iso_para_br(data_iso), str(almoco_v), str(jantar_v), str(marmita_almoco_v), str(marmita_jantar_v), str(total_refeicoes_dia), str(lanche_v)])
+            tabela_mensal.controls.append(
+                ft.Row(
+                    [
+                        ft.Text(data_iso_para_br(data_iso), width=90),
+                        ft.Text(str(almoco_v), width=65),
+                        ft.Text(str(jantar_v), width=65),
+                        ft.Text(str(marmita_almoco_v), width=75),
+                        ft.Text(str(marmita_jantar_v), width=75),
+                        ft.Text(str(total_refeicoes_dia), width=110),
+                        ft.Text(str(lanche_v), width=65),
+                    ]
+                )
+            )
+            linhas_pdf.append([
+                data_iso_para_br(data_iso), str(almoco_v), str(jantar_v),
+                str(marmita_almoco_v), str(marmita_jantar_v),
+                str(total_refeicoes_dia), str(lanche_v),
+            ])
 
         if not dias:
             tabela_mensal.controls.append(ft.Text("Nenhum registro neste mês."))
 
-        total_mensal_text.value = f"Total de refeições do mês (Almoço + Jantar + Marmitas): {total_mes_refeicoes}\nTotal de lanches do mês: {total_mes_lanches}"
+        total_mensal_text.value = (
+            f"Total de refeições do mês (Almoço + Jantar + Marmitas): {total_mes_refeicoes}\n"
+            f"Total de lanches do mês: {total_mes_lanches}"
+        )
+
+        # --- Insights Automáticos ---
+        insights_mensal_col.controls.clear()
+        if dias:
+            lista_insights = gerar_insights_mensais(ano, mes, dias, total_mes_refeicoes, total_mes_lanches, rows)
+            insights_mensal_col.controls.append(
+                ft.Text("💡 Insights Automáticos", size=15, weight="bold", color=COR_VERDE_ESCURO)
+            )
+            for linha in lista_insights:
+                insights_mensal_col.controls.append(ft.Text(linha, size=13))
+        else:
+            lista_insights = []
 
         dados_pdf_mensal["linhas"] = linhas_pdf
         dados_pdf_mensal["titulo"] = f"Relatório Mensal — {MESES_PT[mes - 1]}/{ano}"
@@ -487,6 +762,7 @@ def construir_interface(page: ft.Page):
             f"Total de refeições do mês (Almoço + Jantar + Marmitas): {total_mes_refeicoes}",
             f"Total de lanches do mês: {total_mes_lanches}",
         ]
+        dados_pdf_mensal["insights"] = lista_insights
         page.update()
 
     def imprimir_relatorio_mensal(e):
@@ -495,48 +771,77 @@ def construir_interface(page: ft.Page):
         if not dados_pdf_mensal["linhas"]:
             return
         pdf_bytes = gerar_pdf_relatorio(
-            titulo=dados_pdf_mensal["titulo"], subtitulo=dados_pdf_mensal["subtitulo"],
+            titulo=dados_pdf_mensal["titulo"],
+            subtitulo=dados_pdf_mensal["subtitulo"],
             cabecalhos=["Data", "Almoço", "Jantar", "Marmita\nAlmoço", "Marmita\nJanta", "Total Refeições", "Lanche"],
-            linhas=dados_pdf_mensal["linhas"], rodape_linhas=dados_pdf_mensal["rodape"],
+            linhas=dados_pdf_mensal["linhas"],
+            rodape_linhas=dados_pdf_mensal["rodape"],
+            insights_linhas=dados_pdf_mensal["insights"],
         )
         abrir_pdf_no_navegador(page, pdf_bytes)
 
     tab_mensal = ft.Container(
         content=ft.Column(
-            [
-                ft.Text("Relatório Mensal", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                ft.Row([
-                    mes_dd, ano_mensal_dd,
-                    ft.ElevatedButton("Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                    ft.ElevatedButton("Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ], wrap=True),
-                ft.Divider(),
-                ft.Row([tabela_mensal], scroll=ft.ScrollMode.AUTO),
-                total_mensal_text,
-            ],
-            spacing=12, scroll=ft.ScrollMode.AUTO,
+        [
+            ft.Text("Relatório Mensal", size=24, weight="bold", color=COR_VERDE_ESCURO),
+            ft.Row([
+                mes_dd, ano_mensal_dd,
+                ft.ElevatedButton(
+                    "Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_mensal,
+                    style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
+                ),
+                ft.ElevatedButton(
+                    "Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_mensal,
+                    style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
+                ),
+            ]),
+            ft.Divider(),
+            tabela_mensal,
+            total_mensal_text,
+            ft.Divider(),
+            ft.Container(
+                content=insights_mensal_col,
+                bgcolor=COR_FUNDO_PAGINA,
+                border_radius=RAIO_PADRAO,
+                padding=16,
+            ),
+        ],
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
         ),
-        bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
+
+    # ---------------- ABA 3: RELATÓRIO ANUAL ----------------
 
     ano_anual_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     tabela_anual = ft.Column(spacing=2)
     total_anual_text = ft.Text("", size=18, weight="bold", color=COR_VERDE_ESCURO)
-    dados_pdf_anual = {"linhas": [], "titulo": "", "subtitulo": "", "rodape": []}
+    insights_anual_col = ft.Column(spacing=6)
+    dados_pdf_anual = {"linhas": [], "titulo": "", "subtitulo": "", "rodape": [], "insights": []}
 
     def gerar_relatorio_anual(e):
         ano = int(ano_anual_dd.value)
-        rows = buscar_ano(ano)
+        rows = buscar_ano(ano)  # [(mes_str, total_refeicoes, total_lanches), ...]
         somas = {mes_str: (ref, lan) for mes_str, ref, lan in rows}
 
         tabela_anual.controls.clear()
-        tabela_anual.controls.append(ft.Row([
-            ft.Text("Mês", width=150, weight="bold"),
-            ft.Text("Total de Refeições", width=150, weight="bold"),
-            ft.Text("Total de Lanches", width=150, weight="bold"),
-        ]))
+        tabela_anual.controls.append(
+            ft.Row(
+                [
+                    ft.Text("Mês", width=150, weight="bold"),
+                    ft.Text("Total de Refeições", width=150, weight="bold"),
+                    ft.Text("Total de Lanches", width=150, weight="bold"),
+                ]
+            )
+        )
 
         linhas_pdf = []
+        somas_por_mes_numero = {}
         total_ano_refeicoes = 0
         total_ano_lanches = 0
         for i in range(1, 13):
@@ -544,16 +849,37 @@ def construir_interface(page: ft.Page):
             ref_v, lan_v = somas.get(chave, (0, 0))
             ref_v = ref_v or 0
             lan_v = lan_v or 0
+            somas_por_mes_numero[i] = ref_v
             total_ano_refeicoes += ref_v
             total_ano_lanches += lan_v
-            tabela_anual.controls.append(ft.Row([
-                ft.Text(MESES_PT[i - 1], width=150),
-                ft.Text(str(ref_v), width=150),
-                ft.Text(str(lan_v), width=150),
-            ]))
+            tabela_anual.controls.append(
+                ft.Row(
+                    [
+                        ft.Text(MESES_PT[i - 1], width=150),
+                        ft.Text(str(ref_v), width=150),
+                        ft.Text(str(lan_v), width=150),
+                    ]
+                )
+            )
             linhas_pdf.append([MESES_PT[i - 1], str(ref_v), str(lan_v)])
 
-        total_anual_text.value = f"Total de refeições do ano: {total_ano_refeicoes}\nTotal de lanches do ano: {total_ano_lanches}"
+        total_anual_text.value = (
+            f"Total de refeições do ano: {total_ano_refeicoes}\n"
+            f"Total de lanches do ano: {total_ano_lanches}"
+        )
+
+        # --- Insights Automáticos ---
+        insights_anual_col.controls.clear()
+        if total_ano_refeicoes > 0 or total_ano_lanches > 0:
+            rows_ano_completo = buscar_registros_ano(ano)
+            lista_insights = gerar_insights_anuais(ano, somas_por_mes_numero, total_ano_refeicoes, rows_ano_completo)
+            insights_anual_col.controls.append(
+                ft.Text("💡 Insights Automáticos", size=15, weight="bold", color=COR_VERDE_ESCURO)
+            )
+            for linha in lista_insights:
+                insights_anual_col.controls.append(ft.Text(linha, size=13))
+        else:
+            lista_insights = []
 
         dados_pdf_anual["linhas"] = linhas_pdf
         dados_pdf_anual["titulo"] = f"Relatório Anual — {ano}"
@@ -562,6 +888,7 @@ def construir_interface(page: ft.Page):
             f"Total de refeições do ano: {total_ano_refeicoes}",
             f"Total de lanches do ano: {total_ano_lanches}",
         ]
+        dados_pdf_anual["insights"] = lista_insights
         page.update()
 
     def imprimir_relatorio_anual(e):
@@ -570,117 +897,57 @@ def construir_interface(page: ft.Page):
         if not dados_pdf_anual["linhas"]:
             return
         pdf_bytes = gerar_pdf_relatorio(
-            titulo=dados_pdf_anual["titulo"], subtitulo=dados_pdf_anual["subtitulo"],
+            titulo=dados_pdf_anual["titulo"],
+            subtitulo=dados_pdf_anual["subtitulo"],
             cabecalhos=["Mês", "Total de Refeições", "Total de Lanches"],
-            linhas=dados_pdf_anual["linhas"], rodape_linhas=dados_pdf_anual["rodape"],
+            linhas=dados_pdf_anual["linhas"],
+            rodape_linhas=dados_pdf_anual["rodape"],
+            insights_linhas=dados_pdf_anual["insights"],
         )
         abrir_pdf_no_navegador(page, pdf_bytes)
 
     tab_anual = ft.Container(
         content=ft.Column(
-            [
-                ft.Text("Relatório Anual", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                ft.Row([
-                    ano_anual_dd,
-                    ft.ElevatedButton("Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_anual, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                    ft.ElevatedButton("Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_anual, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                ], wrap=True),
-                ft.Divider(),
-                ft.Row([tabela_anual], scroll=ft.ScrollMode.AUTO),
-                total_anual_text,
-            ],
-            spacing=12, scroll=ft.ScrollMode.AUTO,
-        ),
-        bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
-    )
-
-    # ---------------- ABA 4: DASHBOARD ----------------
-
-    ano_dashboard_dd = ft.Dropdown(
-        label="Ano", options=anos_opcoes, value=str(ano_atual), width=140,
-        border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
-        focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
-    )
-    grafico_mes_col = ft.Column(spacing=10)
-    grafico_ano_col = ft.Column(spacing=10)
-
-    def atualizar_dashboard_mensal(e=None):
-        ano = int(ano_dashboard_dd.value)
-        rows = buscar_ano(ano)  # [(mes_str, total_refeicoes, total_lanches)]
-        somas = {mes_str: (ref or 0) for mes_str, ref, lan in rows}
-        valores = [somas.get(f"{i:02d}", 0) for i in range(1, 13)]
-        rotulos = [m[:3] for m in MESES_PT]
-
-        chart, idx, valor = montar_grafico_barras(valores, rotulos)
-        grafico_mes_col.controls.clear()
-        grafico_mes_col.controls.append(chart)
-        if idx is not None:
-            grafico_mes_col.controls.append(
-                badge_destaque(f"🏆 Mês com maior consumo em {ano}: {MESES_PT[idx]} — {valor} refeições")
-            )
-        else:
-            grafico_mes_col.controls.append(ft.Text("Nenhum registro neste ano.", color=COR_CINZA_TEXTO))
-        page.update()
-
-    def atualizar_dashboard_anual(e=None):
-        rows = buscar_totais_por_ano()  # [(ano_str, total_refeicoes, total_lanches)]
-        if not rows:
-            grafico_ano_col.controls.clear()
-            grafico_ano_col.controls.append(ft.Text("Nenhum dado registrado ainda.", color=COR_CINZA_TEXTO))
-            page.update()
-            return
-
-        rotulos = [r[0] for r in rows]
-        valores = [r[1] or 0 for r in rows]
-
-        chart, idx, valor = montar_grafico_barras(valores, rotulos)
-        grafico_ano_col.controls.clear()
-        grafico_ano_col.controls.append(chart)
-        if idx is not None:
-            grafico_ano_col.controls.append(
-                badge_destaque(f"🏆 Ano com maior consumo: {rotulos[idx]} — {valor} refeições")
-            )
-        page.update()
-
-    ano_dashboard_dd.on_change = atualizar_dashboard_mensal
-
-    tab_dashboard = ft.Column(
         [
-            ft.Text("Dashboard", size=24, weight="bold", color=COR_VERDE_ESCURO),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [ft.Text("Consumo por mês", size=16, weight="bold", color=COR_VERDE_ESCURO), ano_dashboard_dd],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            wrap=True,
-                        ),
-                        grafico_mes_col,
-                    ],
-                    spacing=14,
+            ft.Text("Relatório Anual", size=24, weight="bold", color=COR_VERDE_ESCURO),
+            ft.Row([
+                ano_anual_dd,
+                ft.ElevatedButton(
+                    "Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_anual,
+                    style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
-                bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
-            ),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text("Consumo por ano", size=16, weight="bold", color=COR_VERDE_ESCURO),
-                        grafico_ano_col,
-                    ],
-                    spacing=14,
+                ft.ElevatedButton(
+                    "Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_anual,
+                    style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
-                bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
+            ]),
+            ft.Divider(),
+            tabela_anual,
+            total_anual_text,
+            ft.Divider(),
+            ft.Container(
+                content=insights_anual_col,
+                bgcolor=COR_FUNDO_PAGINA,
+                border_radius=RAIO_PADRAO,
+                padding=16,
             ),
         ],
-        spacing=16, scroll=ft.ScrollMode.AUTO,
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
 
+    # ---------------- MONTAGEM DA NAVEGAÇÃO (sem Tabs, evita bug de altura no mobile) ----------------
+
     atualizar_historico()
+
     tab_mensal.visible = False
     tab_anual.visible = False
-    tab_dashboard.visible = False
-    atualizar_dashboard_mensal()
-    atualizar_dashboard_anual()
 
     def estilo_botao(ativo):
         return ft.ButtonStyle(
@@ -694,20 +961,29 @@ def construir_interface(page: ft.Page):
         tab_registro.visible = indice == 0
         tab_mensal.visible = indice == 1
         tab_anual.visible = indice == 2
-        tab_dashboard.visible = indice == 3
         btn_registro.style = estilo_botao(indice == 0)
         btn_mensal.style = estilo_botao(indice == 1)
         btn_anual.style = estilo_botao(indice == 2)
-        btn_dashboard.style = estilo_botao(indice == 3)
-        if indice == 3:
-            atualizar_dashboard_mensal()
-            atualizar_dashboard_anual()
         page.update()
 
-    btn_registro = ft.ElevatedButton("Registro Diário", icon=ft.Icons.RESTAURANT_MENU, on_click=lambda e: mostrar_aba(0), style=estilo_botao(True))
-    btn_mensal = ft.ElevatedButton("Relatório Mensal", icon=ft.Icons.CALENDAR_MONTH, on_click=lambda e: mostrar_aba(1), style=estilo_botao(False))
-    btn_anual = ft.ElevatedButton("Relatório Anual", icon=ft.Icons.BAR_CHART, on_click=lambda e: mostrar_aba(2), style=estilo_botao(False))
-    btn_dashboard = ft.ElevatedButton("Dashboard", icon=ft.Icons.INSIGHTS, on_click=lambda e: mostrar_aba(3), style=estilo_botao(False))
+    btn_registro = ft.ElevatedButton(
+        "Registro Diário",
+        icon=ft.Icons.RESTAURANT_MENU,
+        on_click=lambda e: mostrar_aba(0),
+        style=estilo_botao(True),
+    )
+    btn_mensal = ft.ElevatedButton(
+        "Relatório Mensal",
+        icon=ft.Icons.CALENDAR_MONTH,
+        on_click=lambda e: mostrar_aba(1),
+        style=estilo_botao(False),
+    )
+    btn_anual = ft.ElevatedButton(
+        "Relatório Anual",
+        icon=ft.Icons.BAR_CHART,
+        on_click=lambda e: mostrar_aba(2),
+        style=estilo_botao(False),
+    )
 
     page.add(
         ft.Container(
@@ -715,34 +991,64 @@ def construir_interface(page: ft.Page):
                 [
                     ft.Image(src=LOGO_ARCOM_URL, width=120, fit=ft.BoxFit.CONTAIN),
                     ft.Container(width=16),
-                    ft.Text("Controle de Refeições", size=18, weight="bold", color=COR_VERDE_ESCURO),
+                    ft.Text(
+                        "Controle de Refeições",
+                        size=18,
+                        weight="bold",
+                        color=COR_VERDE_ESCURO,
+                    ),
                 ],
                 alignment=ft.MainAxisAlignment.START,
             ),
-            bgcolor=COR_BRANCO, padding=16, shadow=sombra_header(),
+            bgcolor=COR_BRANCO,
+            padding=16,
+            shadow=sombra_header(),
         ),
         ft.Container(height=10),
-        ft.Row([btn_registro, btn_mensal, btn_anual, btn_dashboard], wrap=True),
+        ft.Row(
+            [btn_registro, btn_mensal, btn_anual],
+            wrap=True,
+        ),
         ft.Divider(),
-        tab_registro, tab_mensal, tab_anual, tab_dashboard,
+        tab_registro,
+        tab_mensal,
+        tab_anual,
         ft.Divider(),
         ft.Container(
-            content=ft.Text("Desenvolvido por G.SANGUINETE", size=12, color=COR_CINZA_TEXTO, italic=True),
-            alignment=ft.Alignment.CENTER, padding=10,
+            content=ft.Text(
+                "Desenvolvido por G.SANGUINETE",
+                size=12,
+                color=COR_CINZA_TEXTO,
+                italic=True,
+            ),
+            alignment=ft.Alignment.CENTER,
+            padding=10,
         ),
     )
+
 
 
 def main(page: ft.Page):
     page.title = "Controle de Refeições — ARCOM"
     page.scroll = ft.ScrollMode.AUTO
     page.bgcolor = COR_FUNDO_PAGINA
-    page.theme = ft.Theme(color_scheme=ft.ColorScheme(primary=COR_VERDE_ARCOM, error=COR_DANGER))
+    page.theme = ft.Theme(
+        color_scheme=ft.ColorScheme(
+            primary=COR_VERDE_ARCOM,
+            error=COR_DANGER,
+        ),
+    )
     criar_tabela()
 
     SENHA_APP = os.environ.get("APP_PASSWORD", "1234")
 
-    senha_field = ft.TextField(label="Senha de acesso", password=True, can_reveal_password=True, width=280, border_radius=RAIO_PADRAO)
+    senha_field = ft.TextField(
+        label="Senha de acesso",
+        password=True,
+        can_reveal_password=True,
+        width=280,
+        border_radius=RAIO_PADRAO,
+    )
     erro_login = ft.Text("", color=COR_DANGER)
 
     def entrar(e):
@@ -765,20 +1071,45 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text("Controle de Refeições", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                            ft.Text("Digite a senha para acessar", size=14, color=COR_CINZA_TEXTO),
+                            ft.Text(
+                                "Controle de Refeições",
+                                size=24,
+                                weight="bold",
+                                color=COR_VERDE_ESCURO,
+                            ),
+                            ft.Text(
+                                "Digite a senha para acessar",
+                                size=14,
+                                color=COR_CINZA_TEXTO,
+                            ),
                             senha_field,
-                            ft.ElevatedButton("Entrar", icon=ft.Icons.LOGIN, on_click=entrar, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
+                            ft.ElevatedButton(
+                                "Entrar",
+                                icon=ft.Icons.LOGIN,
+                                on_click=entrar,
+                                style=ft.ButtonStyle(
+                                    bgcolor=COR_VERDE_ARCOM,
+                                    color=COR_BRANCO,
+                                    shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO),
+                                ),
+                            ),
                             erro_login,
                         ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=14,
                     ),
-                    bgcolor=COR_BRANCO, border_radius=RAIO_CARD, padding=30, width=340, shadow=sombra_card(),
+                    bgcolor=COR_BRANCO,
+                    border_radius=RAIO_CARD,
+                    padding=30,
+                    width=340,
+                    shadow=sombra_card(),
                 ),
             ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
         )
     )
+
 
 
 ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=PORT)
