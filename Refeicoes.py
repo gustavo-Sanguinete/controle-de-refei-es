@@ -658,7 +658,7 @@ def construir_interface(page: ft.Page):
         ft.Container(
             content=ft.Row(
                 [
-                    ft.Image(src=LOGO_ARCOM_URL, width=120, fit=ft.ImageFit.CONTAIN),
+                    ft.Image(src=LOGO_ARCOM_URL, width=120, fit=ft.BoxFit.CONTAIN),
                     ft.Container(width=16),
                     ft.Text(
                         "Controle de Refeições",
@@ -735,7 +735,7 @@ def main(page: ft.Page):
         ft.Column(
             [
                 ft.Container(height=60),
-                ft.Image(src=LOGO_ARCOM_URL, width=220, fit=ft.ImageFit.CONTAIN),
+                ft.Image(src=LOGO_ARCOM_URL, width=220, fit=ft.BoxFit.CONTAIN),
                 ft.Container(height=20),
                 ft.Container(
                     content=ft.Column(
