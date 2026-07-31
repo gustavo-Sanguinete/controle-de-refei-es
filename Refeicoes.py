@@ -32,6 +32,23 @@ COR_BORDA_CARD = "#E6E7E8"
 LOGO_ARCOM_URL = "https://www.arcom.com.br/imagens/produtos/Logo_Fundo_Branco.png"
 
 RAIO_PADRAO = 8
+RAIO_CARD = 12
+
+def sombra_card():
+    return ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=16,
+        color="#1A1F4033",  # verde escuro com baixa opacidade (formato #AARRGGBB)
+        offset=ft.Offset(0, 4),
+    )
+
+def sombra_header():
+    return ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=10,
+        color="#141F4033",
+        offset=ft.Offset(0, 2),
+    )
 
 MESES_PT = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -245,20 +262,30 @@ def construir_interface(page: ft.Page):
         ],
         value="almoco",
         width=200,
+        border_radius=RAIO_PADRAO,
+        border_color=COR_BORDA_CARD,
+        focused_border_color=COR_VERDE_ARCOM,
+        filled=True,
+        bgcolor=COR_BRANCO,
     )
     data_field = ft.TextField(
         label="Data (DD/MM/AAAA)",
         value=datetime.now().strftime("%d/%m/%Y"),
         width=200,
+        border_radius=RAIO_PADRAO,
+        border_color=COR_BORDA_CARD,
+        focused_border_color=COR_VERDE_ARCOM,
+        filled=True,
+        bgcolor=COR_BRANCO,
     )
-    inicial = ft.TextField(label="Quantidade inicial de refeições")
-    reposicoes = ft.TextField(label="Quantidade de reposições")
-    pratos_unidade = ft.TextField(label="Quantidade de pratos por unidade")
-    unidades_extra = ft.TextField(label="Quantidade de unidades extras")
-    sobras_pratos = ft.TextField(label="Quantidade de sobras de prato")
+    inicial = ft.TextField(label="Quantidade inicial de refeições", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    reposicoes = ft.TextField(label="Quantidade de reposições", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    pratos_unidade = ft.TextField(label="Quantidade de pratos por unidade", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    unidades_extra = ft.TextField(label="Quantidade de unidades extras", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    sobras_pratos = ft.TextField(label="Quantidade de sobras de prato", border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     campos_formula = [inicial, reposicoes, pratos_unidade, unidades_extra, sobras_pratos]
 
-    quantidade_simples = ft.TextField(label="Quantidade", visible=False)
+    quantidade_simples = ft.TextField(label="Quantidade", visible=False, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
 
     total_refeicoes = ft.TextField(
         label="Total de refeições", disabled=True, color="red"
@@ -373,7 +400,8 @@ def construir_interface(page: ft.Page):
         mensagem.value = ""
         page.update()
 
-    tab_registro = ft.Column(
+    tab_registro = ft.Container(
+        content=ft.Column(
         [
             ft.Text("Registro Diário", size=24, weight="bold", color=COR_VERDE_ESCURO),
             ft.Row([turno_dd, data_field]),
@@ -385,8 +413,8 @@ def construir_interface(page: ft.Page):
             quantidade_simples,
             ft.Row(
                 [
-                    ft.ElevatedButton("Calcular e Salvar", on_click=calcular_e_salvar, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                    ft.ElevatedButton("Limpar", on_click=limpar),
+                    ft.ElevatedButton("Calcular e Salvar", icon=ft.Icons.CHECK_CIRCLE, on_click=calcular_e_salvar, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
+                    ft.ElevatedButton("Limpar", icon=ft.Icons.CLEAR, on_click=limpar, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
                 ]
             ),
             total_refeicoes,
@@ -394,8 +422,14 @@ def construir_interface(page: ft.Page):
             ft.Divider(),
             historico_col,
         ],
-        spacing=12,
-        scroll=ft.ScrollMode.AUTO,
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
 
     # ---------------- ABA 2: RELATÓRIO MENSAL ----------------
@@ -404,8 +438,8 @@ def construir_interface(page: ft.Page):
     anos_opcoes = [ft.dropdown.Option(str(a)) for a in range(ano_atual - 2, ano_atual + 2)]
     meses_opcoes = [ft.dropdown.Option(key=str(i + 1), text=nome) for i, nome in enumerate(MESES_PT)]
 
-    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(datetime.now().month), width=180)
-    ano_mensal_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120)
+    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(datetime.now().month), width=180, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    ano_mensal_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
 
     tabela_mensal = ft.Column(spacing=2)
     total_mensal_text = ft.Text("", size=18, weight="bold", color=COR_VERDE_ESCURO)
@@ -498,17 +532,18 @@ def construir_interface(page: ft.Page):
         )
         abrir_pdf_no_navegador(page, pdf_bytes)
 
-    tab_mensal = ft.Column(
+    tab_mensal = ft.Container(
+        content=ft.Column(
         [
             ft.Text("Relatório Mensal", size=24, weight="bold", color=COR_VERDE_ESCURO),
             ft.Row([
                 mes_dd, ano_mensal_dd,
                 ft.ElevatedButton(
-                    "Gerar Relatório", on_click=gerar_relatorio_mensal,
+                    "Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_mensal,
                     style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
                 ft.ElevatedButton(
-                    "Imprimir", on_click=imprimir_relatorio_mensal,
+                    "Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_mensal,
                     style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
             ]),
@@ -516,13 +551,19 @@ def construir_interface(page: ft.Page):
             tabela_mensal,
             total_mensal_text,
         ],
-        spacing=12,
-        scroll=ft.ScrollMode.AUTO,
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
 
     # ---------------- ABA 3: RELATÓRIO ANUAL ----------------
 
-    ano_anual_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120)
+    ano_anual_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     tabela_anual = ft.Column(spacing=2)
     total_anual_text = ft.Text("", size=18, weight="bold", color=COR_VERDE_ESCURO)
     dados_pdf_anual = {"linhas": [], "titulo": "", "subtitulo": "", "rodape": []}
@@ -592,17 +633,18 @@ def construir_interface(page: ft.Page):
         )
         abrir_pdf_no_navegador(page, pdf_bytes)
 
-    tab_anual = ft.Column(
+    tab_anual = ft.Container(
+        content=ft.Column(
         [
             ft.Text("Relatório Anual", size=24, weight="bold", color=COR_VERDE_ESCURO),
             ft.Row([
                 ano_anual_dd,
                 ft.ElevatedButton(
-                    "Gerar Relatório", on_click=gerar_relatorio_anual,
+                    "Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_anual,
                     style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
                 ft.ElevatedButton(
-                    "Imprimir", on_click=imprimir_relatorio_anual,
+                    "Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_anual,
                     style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO)),
                 ),
             ]),
@@ -610,8 +652,14 @@ def construir_interface(page: ft.Page):
             tabela_anual,
             total_anual_text,
         ],
-        spacing=12,
-        scroll=ft.ScrollMode.AUTO,
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=COR_BRANCO,
+        border=ft.Border.all(1, COR_BORDA_CARD),
+        border_radius=RAIO_CARD,
+        padding=24,
+        shadow=sombra_card(),
     )
 
     # ---------------- MONTAGEM DA NAVEGAÇÃO (sem Tabs, evita bug de altura no mobile) ----------------
@@ -640,16 +688,19 @@ def construir_interface(page: ft.Page):
 
     btn_registro = ft.ElevatedButton(
         "Registro Diário",
+        icon=ft.Icons.RESTAURANT_MENU,
         on_click=lambda e: mostrar_aba(0),
         style=estilo_botao(True),
     )
     btn_mensal = ft.ElevatedButton(
         "Relatório Mensal",
+        icon=ft.Icons.CALENDAR_MONTH,
         on_click=lambda e: mostrar_aba(1),
         style=estilo_botao(False),
     )
     btn_anual = ft.ElevatedButton(
         "Relatório Anual",
+        icon=ft.Icons.BAR_CHART,
         on_click=lambda e: mostrar_aba(2),
         style=estilo_botao(False),
     )
@@ -670,8 +721,8 @@ def construir_interface(page: ft.Page):
                 alignment=ft.MainAxisAlignment.START,
             ),
             bgcolor=COR_BRANCO,
-            border=ft.Border.only(bottom=ft.BorderSide(1, COR_BORDA_CARD)),
             padding=16,
+            shadow=sombra_header(),
         ),
         ft.Container(height=10),
         ft.Row(
@@ -754,6 +805,7 @@ def main(page: ft.Page):
                             senha_field,
                             ft.ElevatedButton(
                                 "Entrar",
+                                icon=ft.Icons.LOGIN,
                                 on_click=entrar,
                                 style=ft.ButtonStyle(
                                     bgcolor=COR_VERDE_ARCOM,
@@ -767,10 +819,10 @@ def main(page: ft.Page):
                         spacing=14,
                     ),
                     bgcolor=COR_BRANCO,
-                    border=ft.Border.all(1, COR_BORDA_CARD),
-                    border_radius=12,
+                    border_radius=RAIO_CARD,
                     padding=30,
                     width=340,
+                    shadow=sombra_card(),
                 ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
