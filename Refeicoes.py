@@ -247,55 +247,38 @@ def data_iso_para_br(data_iso):
     return dt.strftime("%d/%m/%Y")
 
 
-def montar_grafico_barras(valores, rotulos, altura=260):
-    """Monta um BarChart no padrão ARCOM a partir de listas paralelas de
-    valores e rótulos, destacando em verde-lima a maior barra.
-    Retorna (chart, indice_da_maior, valor_da_maior)."""
+def montar_grafico_barras(valores, rotulos, altura_max=170):
+    """Monta um gráfico de barras 'na mão' (Container + Column), sem depender
+    de nenhum pacote externo de gráficos — mais robusto entre versões do Flet.
+    Destaca em verde-lima a maior barra. Retorna (grafico, indice_da_maior, valor_da_maior)."""
     maior_valor = max(valores) if valores else 0
     maior_indice = valores.index(maior_valor) if maior_valor > 0 else None
 
-    grupos = []
+    barras = []
     for i, v in enumerate(valores):
         cor = COR_VERDE_LIMA if i == maior_indice else COR_VERDE_ARCOM
-        grupos.append(
-            ft.BarChartGroup(
-                x=i,
-                bar_rods=[
-                    ft.BarChartRod(
-                        from_y=0, to_y=v, width=18,
-                        color=cor, border_radius=4,
-                        tooltip=f"{rotulos[i]}: {v}",
-                    )
+        altura_barra = (v / maior_valor * altura_max) if maior_valor > 0 else 2
+        altura_barra = max(altura_barra, 2)  # barra mínima visível mesmo com valor 0
+        barras.append(
+            ft.Column(
+                [
+                    ft.Text(str(v), size=10, color=COR_CINZA_TEXTO, weight="bold"),
+                    ft.Container(width=28, height=altura_barra, bgcolor=cor, border_radius=4),
+                    ft.Text(rotulos[i], size=10, color=COR_CINZA_TEXTO, weight="bold"),
                 ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=4,
             )
         )
 
-    eixo_x = ft.ChartAxis(
-        labels=[
-            ft.ChartAxisLabel(
-                value=i,
-                label=ft.Container(
-                    ft.Text(rotulo, size=10, color=COR_CINZA_TEXTO, weight="bold"),
-                    padding=ft.Padding(0, 8, 0, 0),
-                ),
-            )
-            for i, rotulo in enumerate(rotulos)
-        ],
-        labels_size=34,
+    grafico = ft.Row(
+        barras,
+        alignment=ft.MainAxisAlignment.SPACE_EVENLY,
+        vertical_alignment=ft.CrossAxisAlignment.END,
+        spacing=8,
+        scroll=ft.ScrollMode.AUTO,
     )
-
-    chart = ft.BarChart(
-        bar_groups=grupos,
-        border=ft.Border.all(1, COR_BORDA_CARD),
-        left_axis=ft.ChartAxis(labels_size=44),
-        bottom_axis=eixo_x,
-        horizontal_grid_lines=ft.ChartGridLines(color=COR_BORDA_CARD, width=1),
-        tooltip_bgcolor=COR_VERDE_ESCURO,
-        max_y=(maior_valor * 1.2) if maior_valor > 0 else 10,
-        interactive=True,
-        height=altura,
-    )
-    return chart, maior_indice, maior_valor
+    return grafico, maior_indice, maior_valor
 
 
 def badge_destaque(texto):
