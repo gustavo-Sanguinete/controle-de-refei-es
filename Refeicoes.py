@@ -5,7 +5,6 @@ import base64
 from io import BytesIO
 from datetime import datetime
 import calendar
-from urllib.parse import urljoin
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -17,9 +16,6 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # Localmente, os valores padrão abaixo são usados.
 DB_PATH = os.environ.get("DB_PATH", "refeicoes.db")
 PORT = int(os.environ.get("PORT", 8550))
-# Em produção (Railway/Render/etc.), defina a variável de ambiente HOST=0.0.0.0
-# Localmente, o padrão é 127.0.0.1 — assim o navegador abre certinho sozinho.
-HOST = os.environ.get("HOST", "127.0.0.1")
 
 # ---------------------------------------------------------------------------
 # Identidade visual ARCOM (ARCOM Design System)
@@ -135,7 +131,7 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
     return buffer.getvalue()
 
 
-async def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes, nome_arquivo: str):
+def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes, nome_arquivo: str):
     """Salva o PDF em assets/reports/ e abre em nova aba via URL normal.
     (Abrir direto por data-URI base64 é bloqueado por navegadores modernos
     como medida de segurança, então o PDF precisa existir como arquivo de
@@ -144,12 +140,7 @@ async def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes, nome_arquivo: 
     caminho = os.path.join(REPORTS_DIR, nome_arquivo)
     with open(caminho, "wb") as f:
         f.write(pdf_bytes)
-    # page.url é a URL que o navegador está usando pra acessar o app agora
-    # (ex.: http://127.0.0.1:8550/ em teste local, ou o domínio real em produção).
-    # Sem montar a URL completa, launch_url tenta abrir "/reports/..." como um
-    # caminho de arquivo do Windows e falha (ShellExecute error).
-    url_absoluta = urljoin(page.url or f"http://{HOST}:{PORT}/", f"/reports/{nome_arquivo}")
-    await page.launch_url(url_absoluta)
+    page.launch_url(f"/reports/{nome_arquivo}")
 
 
 def get_connection():
@@ -509,7 +500,7 @@ def construir_interface(page: ft.Page):
         ]
         page.update()
 
-    async def imprimir_relatorio_mensal(e):
+    def imprimir_relatorio_mensal(e):
         if not dados_pdf_mensal["linhas"]:
             gerar_relatorio_mensal(e)
         if not dados_pdf_mensal["linhas"]:
@@ -520,7 +511,7 @@ def construir_interface(page: ft.Page):
             linhas=dados_pdf_mensal["linhas"], rodape_linhas=dados_pdf_mensal["rodape"],
         )
         nome_arquivo = f"relatorio_mensal_{dados_pdf_mensal['ano']}_{dados_pdf_mensal['mes']:02d}.pdf"
-        await abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
+        abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
 
     tab_mensal = ft.Container(
         content=ft.Column(
@@ -586,7 +577,7 @@ def construir_interface(page: ft.Page):
         ]
         page.update()
 
-    async def imprimir_relatorio_anual(e):
+    def imprimir_relatorio_anual(e):
         if not dados_pdf_anual["linhas"]:
             gerar_relatorio_anual(e)
         if not dados_pdf_anual["linhas"]:
@@ -597,7 +588,7 @@ def construir_interface(page: ft.Page):
             linhas=dados_pdf_anual["linhas"], rodape_linhas=dados_pdf_anual["rodape"],
         )
         nome_arquivo = f"relatorio_anual_{dados_pdf_anual['ano']}.pdf"
-        await abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
+        abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
 
     tab_anual = ft.Container(
         content=ft.Column(
@@ -804,4 +795,4 @@ def main(page: ft.Page):
     )
 
 
-ft.run(main, view=ft.AppView.WEB_BROWSER, host=HOST, port=PORT, assets_dir="assets")
+ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=PORT, assets_dir="assets")
