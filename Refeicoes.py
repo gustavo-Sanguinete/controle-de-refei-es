@@ -146,7 +146,7 @@ def abrir_pdf_no_navegador(page: ft.Page, pdf_bytes: bytes, nome_arquivo: str):
     caminho = os.path.join(REPORTS_DIR, nome_arquivo)
     with open(caminho, "wb") as f:
         f.write(pdf_bytes)
-    page.launch_url(f"/reports/{nome_arquivo}")
+    page.launch_url(f"/reports/{nome_arquivo}", web_window_name="_self")
 
 
 def get_connection():
