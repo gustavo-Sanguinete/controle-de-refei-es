@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 def agora_br():
-    return agora_br()(FUSO_BR)
+    return datetime.now(FUSO_BR)
 import calendar
 
 from reportlab.lib.pagesizes import A4
@@ -128,7 +128,7 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
 
     elementos.append(Spacer(1, 20))
     elementos.append(Paragraph(
-        f"Gerado em {agora_br()().strftime('%d/%m/%Y às %H:%M')} — Desenvolvido por G.SANGUINETE",
+        f"Gerado em {agora_br().strftime('%d/%m/%Y às %H:%M')} — Desenvolvido por G.SANGUINETE",
         ParagraphStyle("Rodape", parent=estilos["Normal"], textColor=colors.HexColor(COR_CINZA_TEXTO), fontSize=8),
     ))
 
@@ -316,7 +316,7 @@ def construir_interface(page: ft.Page):
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
     data_field = ft.TextField(
-        label="Data (DD/MM/AAAA)", value=agora_br()().strftime("%d/%m/%Y"), width=170,
+        label="Data (DD/MM/AAAA)", value=agora_br().strftime("%d/%m/%Y"), width=170,
         border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
@@ -436,11 +436,11 @@ def construir_interface(page: ft.Page):
         bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
     )
 
-    ano_atual = agora_br()().year
+    ano_atual = agora_br().year
     anos_opcoes = [ft.dropdown.Option(str(a)) for a in range(ano_atual - 2, ano_atual + 2)]
     meses_opcoes = [ft.dropdown.Option(key=str(i + 1), text=nome) for i, nome in enumerate(MESES_PT)]
 
-    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(agora_br()().month), width=180, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(agora_br().month), width=180, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     ano_mensal_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
 
     tabela_mensal = ft.Column(spacing=2)
