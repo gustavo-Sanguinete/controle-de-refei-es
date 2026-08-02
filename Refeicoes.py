@@ -495,7 +495,7 @@ def construir_interface(page: ft.Page):
         page.update()
 
     link_pdf_mensal = ft.TextButton(
-        "📄 Abrir PDF gerado", visible=False, url_target="_blank",
+        "📄 Abrir PDF gerado", visible=False,
         style=ft.ButtonStyle(color=COR_VERDE_ARCOM),
     )
 
@@ -583,7 +583,7 @@ def construir_interface(page: ft.Page):
         page.update()
 
     link_pdf_anual = ft.TextButton(
-        "📄 Abrir PDF gerado", visible=False, url_target="_blank",
+        "📄 Abrir PDF gerado", visible=False,
         style=ft.ButtonStyle(color=COR_VERDE_ARCOM),
     )
 
