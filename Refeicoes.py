@@ -3,15 +3,7 @@ import sqlite3
 import os
 import base64
 from io import BytesIO
-from agora_br() import agora_br()
-from zoneinfo import ZoneInfo
-
-FUSO_BR = ZoneInfo("America/Sao_Paulo")
-
-def agora_br():
-    """Retorna o agora_br() atual já no horário de Brasília,
-    independente do timezone do servidor (Railway roda em UTC)."""
-    return agora_br().now(FUSO_BR)
+from datetime import datetime
 import calendar
 
 from reportlab.lib.pagesizes import A4
@@ -130,7 +122,7 @@ def gerar_pdf_relatorio(titulo, subtitulo, cabecalhos, linhas, rodape_linhas):
 
     elementos.append(Spacer(1, 20))
     elementos.append(Paragraph(
-        f"Gerado em {agora_br().now().strftime('%d/%m/%Y às %H:%M')} — Desenvolvido por G.SANGUINETE",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} — Desenvolvido por G.SANGUINETE",
         ParagraphStyle("Rodape", parent=estilos["Normal"], textColor=colors.HexColor(COR_CINZA_TEXTO), fontSize=8),
     ))
 
@@ -255,12 +247,12 @@ def buscar_totais_por_ano():
 
 
 def data_br_para_iso(data_br):
-    dt = agora_br().strptime(data_br.strip(), "%d/%m/%Y")
+    dt = datetime.strptime(data_br.strip(), "%d/%m/%Y")
     return dt.strftime("%Y-%m-%d")
 
 
 def data_iso_para_br(data_iso):
-    dt = agora_br().strptime(data_iso, "%Y-%m-%d")
+    dt = datetime.strptime(data_iso, "%Y-%m-%d")
     return dt.strftime("%d/%m/%Y")
 
 
@@ -318,7 +310,7 @@ def construir_interface(page: ft.Page):
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
     data_field = ft.TextField(
-        label="Data (DD/MM/AAAA)", value=agora_br().now().strftime("%d/%m/%Y"), width=170,
+        label="Data (DD/MM/AAAA)", value=datetime.now().strftime("%d/%m/%Y"), width=170,
         border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD,
         focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO,
     )
@@ -438,11 +430,11 @@ def construir_interface(page: ft.Page):
         bgcolor=COR_BRANCO, border=ft.Border.all(1, COR_BORDA_CARD), border_radius=RAIO_CARD, padding=24, shadow=sombra_card(),
     )
 
-    ano_atual = agora_br().now().year
+    ano_atual = datetime.now().year
     anos_opcoes = [ft.dropdown.Option(str(a)) for a in range(ano_atual - 2, ano_atual + 2)]
     meses_opcoes = [ft.dropdown.Option(key=str(i + 1), text=nome) for i, nome in enumerate(MESES_PT)]
 
-    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(agora_br().now().month), width=180, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
+    mes_dd = ft.Dropdown(label="Mês", options=meses_opcoes, value=str(datetime.now().month), width=180, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
     ano_mensal_dd = ft.Dropdown(label="Ano", options=anos_opcoes, value=str(ano_atual), width=120, border_radius=RAIO_PADRAO, border_color=COR_BORDA_CARD, focused_border_color=COR_VERDE_ARCOM, filled=True, bgcolor=COR_BRANCO)
 
     tabela_mensal = ft.Column(spacing=2)
