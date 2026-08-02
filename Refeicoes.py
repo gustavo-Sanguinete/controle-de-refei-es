@@ -506,27 +506,38 @@ def construir_interface(page: ft.Page):
         ]
         page.update()
 
-    def imprimir_relatorio_mensal(e):
-        if not dados_pdf_mensal["linhas"]:
-            gerar_relatorio_mensal(e)
-        if not dados_pdf_mensal["linhas"]:
-            return
-        pdf_bytes = gerar_pdf_relatorio(
-            titulo=dados_pdf_mensal["titulo"], subtitulo=dados_pdf_mensal["subtitulo"],
-            cabecalhos=["Data", "Almoço", "Jantar", "Marmita\nAlmoço", "Marmita\nJanta", "Total Refeições", "Lanche"],
-            linhas=dados_pdf_mensal["linhas"], rodape_linhas=dados_pdf_mensal["rodape"],
-        )
-        nome_arquivo = f"relatorio_mensal_{dados_pdf_mensal['ano']}_{dados_pdf_mensal['mes']:02d}.pdf"
-        abrir_pdf_no_navegador(page, pdf_bytes, nome_arquivo)
+link_pdf_mensal = ft.TextButton(
+    "📄 Abrir PDF gerado", visible=False, url_target="_blank",
+    style=ft.ButtonStyle(color=COR_VERDE_ARCOM),
+)
+
+def imprimir_relatorio_mensal(e):
+    if not dados_pdf_mensal["linhas"]:
+        gerar_relatorio_mensal(e)
+    if not dados_pdf_mensal["linhas"]:
+        return
+    pdf_bytes = gerar_pdf_relatorio(
+        titulo=dados_pdf_mensal["titulo"], subtitulo=dados_pdf_mensal["subtitulo"],
+        cabecalhos=["Data", "Almoço", "Jantar", "Marmita\nAlmoço", "Marmita\nJanta", "Total Refeições", "Lanche"],
+        linhas=dados_pdf_mensal["linhas"], rodape_linhas=dados_pdf_mensal["rodape"],
+    )
+    nome_arquivo = f"relatorio_mensal_{dados_pdf_mensal['ano']}_{dados_pdf_mensal['mes']:02d}.pdf"
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    with open(os.path.join(REPORTS_DIR, nome_arquivo), "wb") as f:
+        f.write(pdf_bytes)
+    link_pdf_mensal.url = f"/reports/{nome_arquivo}"
+    link_pdf_mensal.visible = True
+    page.update()
 
     tab_mensal = ft.Container(
         content=ft.Column(
             [
                 ft.Text("Relatório Mensal", size=24, weight="bold", color=COR_VERDE_ESCURO),
-                ft.Row([
+               ft.Row([
                     mes_dd, ano_mensal_dd,
                     ft.ElevatedButton("Gerar Relatório", icon=ft.Icons.INSERT_CHART, on_click=gerar_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ARCOM, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
-                    ft.ElevatedButton("Imprimir", icon=ft.Icons.PRINT, on_click=imprimir_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
+                    ft.ElevatedButton("Gerar PDF", icon=ft.Icons.PICTURE_AS_PDF, on_click=imprimir_relatorio_mensal, style=ft.ButtonStyle(bgcolor=COR_VERDE_ESCURO, color=COR_BRANCO, shape=ft.RoundedRectangleBorder(radius=RAIO_PADRAO))),
+                    link_pdf_mensal,
                 ], wrap=True),
                 ft.Divider(),
                 ft.Row([tabela_mensal], scroll=ft.ScrollMode.AUTO),
